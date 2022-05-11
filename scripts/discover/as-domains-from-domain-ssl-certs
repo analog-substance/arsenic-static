@@ -1,0 +1,44 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+mkdir -p recon/domains recon/discover
+set -u
+
+find recon/domains/ -maxdepth 1 -type d  | tail -n +2 | while read domain_path; do
+  if [ -f "$domain_path/ssl-cert-domains.txt" ]; then
+    continue
+  fi
+  root_domain=$(basename "$domain_path")
+
+  if [ ! -f "$domain_path/nmap-https-check-subdomains.gnmap" ]; then
+    _ "Running nmap for ports 443,8443 on subdomains for $root_domain"
+    nmap -p443,8443 -sV -sC -iL "$domain_path/subdomains.txt" -oA $domain_path/nmap-https-check-subdomains --open
+  fi
+
+  _ "Getting domains from certs"
+  {
+    grep -ohP 'commonName=.+' $domain_path/nmap-https-check-subdomains.nmap \
+    | sed 's/^commonName=//;s/^\*\.//'
+    grep -ohP 'Subject Alternative Name: DNS:.+' $domain_path/nmap-https-check-subdomains.nmap \
+    | sed 's/^Subject Alternative Name://;s/ DNS://g;s/^\*\.//;s/,/\n/g'
+  } \
+    | grep "\." \
+    | removeInvalidDomains \
+    | sort -d | uniq > $domain_path/ssl-cert-domains.txt
+done
+
+
+if compgen -G "recon/domains/*/ssl-cert-domains.txt" ; then
+  _ "Saving domains to scope"
+  cat recon/domains/*/ssl-cert-domains.txt \
+  | removeInvalidDomains \
+  | arsenic scope prune \
+  | sort -d \
+  | uniq \
+  | tee scope-domains-generated-ssl-certs-domains.txt
+fi

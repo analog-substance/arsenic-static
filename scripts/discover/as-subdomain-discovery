@@ -1,0 +1,83 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+mkdir -p recon/domains recon/discover recon/ips
+
+function root_domain_recon {
+  domain=$(echo $1 | tr 'A-Z' 'a-z')
+  mkdir -p "recon/domains/$domain"
+
+#  if ! echo "$domain" | arsenic scope prune | grep "$domain" > /dev/null ; then
+#    _warn "Skipping domain for crtsh: $domain"
+#  else
+#  fi
+
+  # only amass domains that are not a part of blacklisted root domains
+  if ! echo "$domain" | arsenic scope prune -r | grep "$domain" > /dev/null ; then
+    _warn "Skipping domain for amass: $domain"
+  else
+
+    RECON_FILE="recon/domains/$domain/crtsh.txt"
+    if [ ! -f "$RECON_FILE" ] ; then
+      _ "crtsh $domain"
+      as-crtsh-slurp "$domain" \
+      | tee "$RECON_FILE"
+    fi
+
+    cat "$RECON_FILE" \
+      | arsenic scope prune \
+      | uniq > "recon/domains/$domain/subdomains-crtsh.txt"
+
+    RECON_FILE="recon/domains/$domain/amass-enum-active.txt"
+    if [ ! -f "$RECON_FILE" ] ; then
+      _ "amass enum active $domain"
+
+      amass enum -src -active -d "$domain" \
+      | tee "$RECON_FILE"
+    fi
+
+    RECON_FILE="recon/domains/$domain/amass-intel.txt"
+    if [ ! -f "$RECON_FILE" ] ; then
+      _ "amass intel whois $domain"
+      amass intel -d "$domain" -whois \
+      | tee "$RECON_FILE"
+    fi
+
+    {
+      if [ -f "recon/domains/$domain/amass-enum-active.txt" ]; then
+        cat "recon/domains/$domain/amass-enum-active.txt" 2>/dev/null | awk '{print $2}'
+      fi
+
+      if [ -f "recon/domains/$domain/amass-intel.txt" ]; then
+        cat "recon/domains/$domain/amass-intel.txt"
+      fi
+    } \
+    | grep -P "$(echo "$domain" | sed 's/\./\\./g')\$" \
+    | sort -d \
+    | arsenic scope prune \
+    | uniq > "recon/domains/$domain/subdomains-amass.txt"
+  fi
+}
+
+# Recon root domains
+_ "Checking for subdomains on root domains"
+arsenic scope domains -r | while read domain; do
+  root_domain_recon "$domain"
+done
+
+if compgen -G "recon/domains/*/subdomains-*.txt" > /dev/null 2>&1; then
+  _ "saving scope as-subdomain-discovery"
+  cat recon/domains/*/subdomains-*.txt 2>/dev/null \
+  | sort -d \
+  | uniq \
+  | arsenic scope prune \
+  | tee scope-domains-generated-as-subdomain-discovery.txt
+fi
+
+_ "Combine all discovered domains"
+getAllDomains

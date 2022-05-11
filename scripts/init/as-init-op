@@ -1,0 +1,27 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+set -euo pipefail
+
+OP_NAME=$(basename $(pwd))
+
+_ "Creating op: $OP_NAME"
+
+mkdir -p apps bin report/{findings,sections,static,social} hosts notes recon/{domains,leads}
+touch {apps,bin,notes}/.keep report/static/.keep recon/leads/.keep
+
+if [ -f "/usr/share/nmap/nmap.xsl" ]; then
+  cp /usr/share/nmap/nmap.xsl report/static
+fi
+
+{
+  echo ".nuclei/*"
+} >> .gitignore
+
+touch scope-domains.txt
+touch scope-ips.txt

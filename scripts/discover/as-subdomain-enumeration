@@ -1,0 +1,11 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+set -euo pipefail
+
+echo DO DNS ENUMERATION

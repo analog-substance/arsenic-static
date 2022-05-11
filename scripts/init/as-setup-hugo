@@ -1,0 +1,87 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+set -euo pipefail
+
+OP_NAME=$(basename $(pwd))
+
+NEW_OP=1
+if [ -d .hugo ]; then
+  NEW_OP=0
+  rm -rf .hugo
+fi
+
+_ "Setup Hugo"
+git clone https://github.com/analog-substance/arsenic-hugo.git
+
+rm -rf arsenic-hugo/.git
+rm arsenic-hugo/Makefile
+rm arsenic-hugo/example/themes/arsenic # remove the symlink that is used just for testing purposes
+
+mv arsenic-hugo/example .hugo
+mv arsenic-hugo .hugo/themes/arsenic
+
+mkdir -p report/{sections,findings}
+
+if [[ "$NEW_OP" == "1" ]]; then
+  mv .hugo/README.md report/sections/
+  ln -s report/sections/README.md
+else
+  rm .hugo/README.md
+fi
+
+cd .hugo
+
+if [[ "$NEW_OP" == "1" ]]; then
+  mv config.toml ../
+  mv content/findings/sample-finding ../report/findings/first-finding
+  mv sample-campaign.md ../report/social
+else
+  rm config.toml
+  rm sample-campaign.md
+fi
+
+rm -rf content/findings content/sections content/hosts content/notes content/leads
+
+ln -s ../config.toml
+
+cd content
+ln -sf ../../recon/leads
+ln -sf ../../hosts
+ln -sf ../../notes
+ls -d ../../report/* | xargs -n 1 ln -sf
+
+cd ../../
+
+if [ ! -f Makefile ]; then
+  {
+	  cat <<EOF
+report:: .hugo/node_modules
+	arsenic serve --hugo .hugo
+.hugo/node_modules:
+	cd .hugo; \\
+	npm install
+addnote::
+	cd .hugo; \\
+	hugo new "content/notes/\$\$(date +'%Y-%m-%d_%H%M%S')__\$\$(whoami).md" --kind note
+update_hugo::
+	as-setup-hugo
+EOF
+  } >> Makefile
+fi
+
+add_gitignore() {
+  if [ ! -e ".gitignore" ] || ! grep -q "$1" .gitignore; then
+    echo "$1" >> .gitignore
+  fi
+}
+
+add_gitignore ".hugo_build.lock"
+add_gitignore ".hugo/node_modules/*"
+
+_ "Setup Hugo complete"

@@ -1,0 +1,84 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+CMD=""
+ARG=""
+if [ ! -z "$1" ]; then
+  CMD="$1"
+fi
+
+if [ ! -z "$2" ]; then
+  ARG="$2"
+fi
+
+if [ -z "$CMD" ] ; then
+  CMD="scan"
+fi
+
+# set -x
+set -euo pipefail
+
+function getHosts {
+  gitPull
+
+  {
+    find hosts -name 'nmap-*tcp*'  | cut -d/ -f2
+    ls -d hosts/* | cut -d/ -f2
+  } | sort -d | uniq -c | grep -P "^\s+1 " | awk '{print $2}' | sort -R
+}
+
+function scanHost {
+  host="$1"
+  if [ "$host" == "" ]; then
+    return
+  fi
+
+  _ "Port Scan / TCP / $host / checking"
+  if ! compgen -G "hosts/$host/recon/nmap-*tcp*" > /dev/null 2>&1; then
+    _info "Port Scan / TCP / $host / preparing"
+    mkdir -p "hosts/$host/recon"
+    gitLock "hosts/$host/recon/nmap-punched-quick-tcp.nmap" "TCP port scan lock: $host"
+
+    cd "hosts/$host"
+    _info "Port Scan / TCP / $host / running"
+    as-recon-discover-services "$host"
+    gitCommit "." "TCP port scan complete: $host"
+    cd -
+
+    _info "Port Scan / TCP / $host / complete"
+  fi
+
+  ARG=$(head -n1 <<<$(getHosts | sort -R))
+  if [ ! -z "$ARG" ] ; then
+    exec $0 scan "$ARG"
+  fi
+
+  set +e
+  if grep lock hosts/*/recon/nmap-punched-quick-tcp.nmap | grep :lock > /dev/null; then
+    _warn "other TCP port scans are still running... lets wait before continuing"
+    exit 1
+  fi
+}
+
+gitPull
+
+if [ "$CMD" == "list" ]; then
+  getHosts
+  exit
+fi
+
+if [ "$CMD" == "scan" ] ; then
+  if [ -z "$ARG" ] ; then
+    ARG=$(head -n1 <<<$(getHosts | sort -R))
+    if [ "$ARG" == "" ]; then
+      exit
+    fi
+    _warn "Auto selected $ARG"
+  fi
+  scanHost "$ARG"
+fi

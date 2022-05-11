@@ -1,0 +1,39 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+mkdir -p recon/domains recon/discover recon/ips
+
+function root_domain_recon {
+  domain=$(echo $1 | tr 'A-Z' 'a-z')
+  mkdir -p "recon/domains/$domain"
+
+  # always write in scope subdomains to a txt file
+  grep -P "$(echo "$domain" |  sed 's/\([\.\-]\)/\\\1/g' )\$" scope-domains.txt > "recon/domains/$domain/subdomains-scope.txt"
+
+  # we do not need to skip out of scope root domains here, since we are combining what was generated
+  # whatever is generating the subdomains-*.txt files will need to ensure they only add in scope domains.
+  {
+    if compgen -G "recon/domains/$domain/subdomains-*.txt" > /dev/null 2>&1; then
+      _ "Combining discovered subdomains"
+      cat "recon/domains/$domain/"subdomains-*.txt 2>/dev/null
+    fi
+  } \
+  | sort -d \
+  | uniq \
+  | arsenic scope prune \
+  | tee "recon/domains/$domain/subdomains.txt"
+}
+
+# Recon root domains
+_ "Getting subdomains for root domains"
+arsenic scope domains --all-root-domains | while read domain; do
+  root_domain_recon "$domain"
+done
+
+_ "Combine all discovered domains"
+getAllDomains

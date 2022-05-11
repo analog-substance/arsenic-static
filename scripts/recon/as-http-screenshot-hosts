@@ -1,0 +1,120 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+ME=$0
+CMD=""
+ARG=""
+if [ ! -z "$1" ]; then
+  CMD="$1"
+fi
+
+if [ ! -z "$2" ]; then
+  ARG="$2"
+fi
+
+if [ -z "$CMD" ] ; then
+  CMD="scan"
+fi
+
+set -euo pipefail
+
+WEB_PORTS="80,443,3000,8000,8001,8080,8443"
+
+function getURLs {
+  {
+    set +o pipefail +e
+    cat recon/*.wordlist-content-discover.txt 2> /dev/null \
+    | grep -P "Status: 2"  \
+    | grep -viP "\.(png|jpe?g|ico|css|gif|js)$"
+
+    cat recon/*.wordlist-content-discover.json 2> /dev/null \
+    | jq -r '.results[] | select(.status | tostring | startswith("2")) | .url' \
+    | grep -viP "\.(png|jpe?g|ico|css|gif|js)$"
+    
+    set -o pipefail -e
+  } \
+  | awk '{print $1}' \
+  | sort -d | uniq
+}
+
+function getHosts {
+  gitPull
+
+   {
+     find hosts -name 'gobuster.*.wordlist-content-discover.txt' -size +0 | cut -d/ -f2 | sort -d | uniq
+     find hosts -name 'ffuf.*.wordlist-content-discover.json' -size +0 | cut -d/ -f2 | sort -d | uniq
+     find hosts -name 'wordlist-content-discover.txt' | cut -d/ -f2 | sort -d | uniq
+   } | sort | uniq -c | grep "1 " | awk '{print $2}' | while read host; do
+   cd hosts/$host
+    urls=$(getURLs | wc -l)
+    if [ "$urls" != "0" ]; then
+      echo $host
+    fi
+    cd - > /dev/null
+  done | sort -d | uniq
+}
+
+function scanHost {
+  host="$1"
+  _ "Aquatone / $host / checking"
+
+  if [ ! -f "hosts/$host/recon/wordlist-content-discover.txt" ] ; then
+    _ "Aquatone / $host / preparing"
+
+    cd "hosts/$host"
+
+    gitLock "recon/wordlist-content-discover.txt" "Aquatone lock: $host"
+    getURLs \
+    | tee "recon/wordlist-content-discover.txt"
+
+    _ "Aquatone / $host / running"
+    cat "recon/wordlist-content-discover.txt" | aquatone -ports $WEB_PORTS -out recon/aquatone-wordlist-content-discover
+    # remove UTF BOM, this fixes aquatone being rendered in hugo
+    find . -name '*.html' -exec sed -i '1s/^\xEF\xBB\xBF//' {} \;
+
+    gitCommit "." "Aquatone complete: $host"
+    cd - > /dev/null
+  fi
+
+  _ "Aquatone / $host / complete"
+  sleep 10
+
+  ARG=$(head -n1 <<<$($ME list))
+  if [ ! -z "$ARG" ] ; then
+    exec $ME scan "$ARG"
+  fi
+
+  set +e
+  if grep lock hosts/*/recon/wordlist-content-discover.txt | grep :lock > /dev/null; then
+    _warn "other aquatones are still running... lets wait before continuing"
+    exit 1
+  fi
+}
+
+if [ -z "$CMD" ] ; then
+  _warn "$0 [ list | scan [ hostname/ip ] ]"
+  exit
+fi
+
+gitPull
+
+if [ "$CMD" == "list" ]; then
+  getHosts
+  exit
+fi
+
+if [ "$CMD" == "scan" ] ; then
+  if [ -z "$ARG" ] ; then
+    ARG=$(head -n1 <<<$(getHosts | sort -R))
+    if [ "$ARG" == "" ]; then
+      exit
+    fi
+    _warn "Auto selected $ARG"
+  fi
+  scanHost "$ARG"
+fi

@@ -1,0 +1,28 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+arsenic hosts -p http | nuclei -project -project-path .nuclei -t cves -o "/tmp/nuclei-cves.txt"
+if [ ! -s "/tmp/nuclei-cves.txt" ]; then
+  exit
+fi
+
+arsenic hosts | awk '{print $1}' | while read host; do
+  hostDir=$(arsenic hosts -H "$host" --paths)
+  output="$hostDir/recon/nuclei-cves.txt"
+
+  grep -F "$host" /tmp/nuclei-cves.txt | while read line; do
+    hostLine=$(echo "$line" | grep -oP '\]\s[^\[\]]+\s?' | sed 's/] //g;s|https\?://||g' | awk -F '/' '{print $1}' | awk -F ':' '{print $1}' | awk '{print $1}')
+    if [[ "$host" == "$hostLine" ]]; then
+      echo "$line"
+    fi
+  done | sort -u > "$output"
+
+  if [[ -e "$output" && ! -s "$output" ]]; then
+    rm $output 2> /dev/null
+  fi
+done

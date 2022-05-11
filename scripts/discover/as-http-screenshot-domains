@@ -1,0 +1,33 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+GIT=1
+if [ ! -d .git ]; then
+  GIT=0
+fi
+
+set -euo pipefail
+
+WEB_PORTS="80,443,3000,8000,8001,8080,8443"
+
+_ "Combine all discovered domains"
+getAllDomains
+
+find recon/domains/ -maxdepth 1 -type d  | tail -n +2 | while read domain_path; do
+  if [ ! -d "$domain_path/aquatone-domains" ] ; then
+    domain=$(echo "$domain_path" | cut -d/ -f3)
+
+    cat scope-domains* \
+    | grep -P "$(echo $domain| sed 's/\./\\./g')$" \
+    | sort -u \
+    | aquatone -ports $WEB_PORTS -out  "$domain_path/aquatone-domains"
+
+    # remove UTF BOM, this fixes aquatone being rendered in hugo
+    find "$domain_path/aquatone-domains" -name '*.html' -exec sed -i '1s/^\xEF\xBB\xBF//' {} \;
+  fi
+done

@@ -1,0 +1,24 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+set -euo pipefail
+
+OP_NAME=$(basename $(pwd))
+
+if [ -d .git ]; then
+  _ "git found"
+  if [ "$(git status --porcelain | wc -l)" -gt 0 ]; then
+    _warn "git changes detected"
+    git status
+  fi
+
+  echo
+  _ "git clone $(cat .git/config | grep op.git | awk '{print $3}')"
+fi
+
+_ "as init complete"

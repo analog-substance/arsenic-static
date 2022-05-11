@@ -1,0 +1,163 @@
+#! /bin/bash
+
+####
+## BEGIN: Load common functions
+etc/common.sh
+## END: Load common functions
+####
+
+CHECK_ONLY=""
+CMD=""
+ARG_HOST=""
+ARG_URL=""
+ME=$0
+if [ ! -z "$1" ]; then
+  CMD="$1"
+fi
+
+if [ ! -z "$2" ]; then
+  ARG_HOST="$2"
+fi
+
+if [ ! -z "$3" ]; then
+  ARG_URL="$3"
+fi
+
+if [ -z "$CMD" ] ; then
+  CMD="scan"
+fi
+
+#set -euo pipefail
+set -eu
+# set -x
+
+function genOutputFileName {
+  echo "ffuf.$(echo "$1" | sed "s/:\/\//./" | sed 's/\//\./g').$wordlist_name.json"
+}
+
+function newGetHostUrls {
+  arsenic hosts -p http  | while read url; do
+
+    hostname=$(echo "$url" | sed 's|https\?://||g' | awk -F ':' '{print $1}')
+    hostPath=$(arsenic hosts -H "$hostname" --paths)
+    host=$(echo "$hostPath" | awk -F '/' '{print $2}')
+
+    draft="nope"
+    if [ -f "$hostPath/00_metadata.md" ] ; then
+      draft=$(grep draft "$hostPath/00_metadata.md" || echo "nope")
+    fi
+    if [ "$draft" == "nope" ]; then
+      output_file=$(genOutputFileName "$url")
+      if [ ! -f "$hostPath/recon/$output_file" ] ; then
+        echo $host $url
+      fi
+    fi
+  done | sort -d | uniq
+}
+
+function scanHost {
+  set +u
+  host="$1"
+  url="$2"
+  set -u
+
+  _ "Content Discovery / $host / $url / checking"
+
+
+  draft="nope"
+  if [ -f "hosts/$host/00_metadata.md" ] ; then
+    draft=$(grep draft "hosts/$host/00_metadata.md" || echo "nope")
+  fi
+  if [ "$draft" == "nope" ]; then
+    _info "Content Discovery / $host / $url / preparing"
+    cd "hosts/$host"
+    output_file=$(genOutputFileName "$url")
+
+    gitPull
+    if [ ! -f "recon/$output_file" ] ; then
+      _ "Scanning $host $url"
+      if [ ! -z $CHECK_ONLY ]; then
+        echo "$url"
+      else
+        # ffuf dir -e -k --random-agent -d -u $url -w ../../recon/ffuf-wordlist.txt -o "recon/ffuf-wordlist-$hostname-$port.txt" &
+
+        # If the host points to an S3 bucket, we don't want to ffuf it
+        if curl -sIL $host | grep -q "https://aws.amazon.com/s3/"; then
+          _info "Content Discovery / $host / $url / s3 detected"
+          echo "s3" > $output_file
+          gitCommit "recon/$output_file" "skip ffuf $url" reset
+        else
+          gitLock "recon/$output_file" "ffuf lock: $url"
+
+          set +o pipefail
+          set +e
+
+          _info "Content Discovery / $host / $url / running"
+          as-ffuf -a Firefox -u $url -w $wordlist_file -o "$output_file"
+        fi
+
+        gitCommit "." "ffuf complete: $url"
+        set -e
+        set -o pipefail
+        _info "Content Discovery / $host / $url / complete"
+      fi
+    fi
+    cd - > /dev/null
+  fi
+
+  if [ $MANUAL -eq 0 ]; then
+    ARGS=$(head -n1 <<<$($ME list | grep -v "no host found"))
+    if [ ! -z "$ARGS" ] ; then
+      ARG_HOST=$(echo "$ARGS" | awk '{print $1}')
+      ARG_URL=$(echo "$ARGS" | awk '{print $2}')
+      exec $ME scan
+    fi
+
+    set +e
+    if grep lock hosts/*/recon/ffuf*.json | grep :lock > /dev/null; then
+      _warn "other ffufs are still running... lets wait before continuing"
+      exit 1
+    fi
+  fi
+}
+
+if [ ! -f "recon/wordlist-content-discover.txt" ]; then
+  arsenic wordlist web-content > "recon/wordlist-content-discover.txt"
+fi
+
+wordlist_file=$(realpath "recon/wordlist-content-discover.txt")
+wordlist_name=`basename $wordlist_file`
+wordlist_name="${wordlist_name%.*}"
+
+if [ -z "$CMD" ] ; then
+  _warn "$0 [ list | scan  [ hostname/ip url ]  ]"
+  exit
+fi
+
+gitPull
+
+if [ "$CMD" == "list" ]; then
+  newGetHostUrls
+  exit
+fi
+
+if [ "$CMD" == "scan" ] ; then
+  MANUAL=1
+  if [ -z "$ARG_HOST" ] ; then
+    MANUAL=0
+    _warn no args found, autodetecting
+    ARGS=$(head -n1 <<<$($ME list | grep -v "no host found" | sort -R))
+    ARG_HOST=$(echo "$ARGS" | awk '{print $1}')
+    ARG_URL=$(echo "$ARGS" | awk '{print $2}')
+    if [ "$ARG_HOST" == "" ]; then
+      set +e
+      if grep lock hosts/*/recon/ffuf*.json | grep :lock > /dev/null; then
+        _warn "other ffufs are still running... lets wait before continuing"
+        exit 1
+      fi
+      exit
+    fi
+    _warn "Auto selected $ARG_HOST $ARG_URL"
+  fi
+  scanHost $ARG_HOST $ARG_URL
+fi
