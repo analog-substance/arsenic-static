@@ -11,4 +11,4 @@ if [[ -z "$targets" ]]; then
   targets=$(echo $(echo "$local_ips" | sed 's/$/\/24/g') | sed 's/\s/,/g')
 fi
 
-$NMAP -sP -n "$targets" | grep "to be up" | awk '{print $2}' | grep -vP "$(echo $local_ips | sed 's/\s/\|/g;s/\./\\./g')"
+$NMAP -sP -n "$targets" -oG - | grep "Status: Up" | awk '{print $2}' | grep -vP "$(echo $local_ips | sed 's/\s/\|/g;s/\./\\./g')"
