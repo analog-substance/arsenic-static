@@ -6,4 +6,9 @@ execute_script() {
 	eval "$SCRIPT_CONTENT"
 }
 
-execute_script $SCRIPT_ARGS
+BASH_ARGV0="$SCRIPT_NAME"
+if [[ -z "$SCRIPT_STDIN" ]]; then
+	execute_script $SCRIPT_ARGS
+else
+	echo "$SCRIPT_STDIN" | execute_script $SCRIPT_ARGS
+fi
