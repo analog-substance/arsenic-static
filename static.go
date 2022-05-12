@@ -18,6 +18,7 @@ var memFS embed.FS
 //go:embed etc/common.sh
 var commonScript string
 
+// Get returns the contents of the specified embedded file
 func Get(file string) (string, error) {
 	bytes, err := memFS.ReadFile(file)
 	if err != nil {
@@ -32,10 +33,41 @@ func Get(file string) (string, error) {
 	return content, nil
 }
 
-func Exec(file string, args ...string) (string, error) {
+// Run executes the specified embedded file and waits for it to complete
+func Run(file string, args ...string) error {
+	cmd, err := Command(file, args...)
+	if err != nil {
+		return err
+	}
+
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Output executes the specified embedded file and returns its standard output
+func Output(file string, args ...string) (string, error) {
+	cmd, err := Command(file, args...)
+	if err != nil {
+		return "", err
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	return string(output), nil
+}
+
+// Command returns the Cmd struct to execute the embedded file with the given arguments.
+func Command(file string, args ...string) (*exec.Cmd, error) {
 	contents, err := Get(file)
 	if err != nil {
-		return contents, err
+		return nil, err
 	}
 
 	env := []string{
@@ -45,13 +77,8 @@ func Exec(file string, args ...string) (string, error) {
 
 	cmd := exec.Command("bash")
 	cmd.Stdin = strings.NewReader(executorScript)
-	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(), env...)
+	cmd.Stderr = os.Stderr
 
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-
-	return string(output), nil
+	return cmd, nil
 }
