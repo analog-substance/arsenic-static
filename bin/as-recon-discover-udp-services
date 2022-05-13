@@ -1,9 +1,5 @@
 #! /bin/bash
 
-if [[ -z "$NMAP_TIMING" ]]; then
-  NMAP_TIMING="3"
-fi
-
 if [[ -z "$NMAP" ]]; then
   NMAP="nmap"
 fi
@@ -13,31 +9,19 @@ if [[ -z "$skip_host_discovery" ]]; then
   skip_host_discovery="-Pn"
 fi
 
-quick_scan() {
-  $NMAP --open $skip_host_discovery -T$NMAP_TIMING --host-timeout 30m -n -p- $1 -oA recon/nmap-punched-quick-tcp
-}
-
-accurate_punch(){
-  echo "[+] scanning $1"
-  ports=$(echo $(quick_scan $1 | grep open | cut -d/ -f1) | sed 's/ /,/g')
-  if [[ -z "$ports" ]]; then
-    echo "[+] $1: No open ports"
-    return
-  fi
-
-  echo "[+] Version scanning $ports"
-
-  sudo $NMAP $skip_host_discovery -oA recon/nmap-punched-tcp --host-timeout 30m -n -A -p$ports $1
-  find recon -name "*nmap*.xml" -exec sed -i 's|"[^"]*nmap\.xsl"|"/static/nmap.xsl"|g' {} \;
+accurate_punch() {
+  echo "[+] scanning UDP $1"
+  sudo $NMAP -oA recon/nmap-punched-udp -sUV -p- $skip_host_discovery --max-rtt-timeout 100ms --min-rate 1000 --version-intensity 0 "$1"
+  sed -i 's|"[^"]*nmap\.xsl"|"/static/nmap.xsl"|g' recon/nmap-punched-udp.xml
 }
 
 try_punch(){
   base_dir="hosts/$ip"
   mkdir -p $base_dir/loot/passwords $base_dir/recon
-  if ! compgen -G "hosts/$host/recon/nmap-*tcp*" > /dev/null 2>&1; then
+  if ! compgen -G "hosts/$host/recon/nmap-*udp*" > /dev/null 2>&1; then
     cd $base_dir
     accurate_punch $ip
-    cd - 2>/dev/null
+    cd - >/dev/null 2>&1
   else
     echo "[!] Skipping since it was already done"
   fi
