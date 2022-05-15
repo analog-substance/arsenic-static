@@ -47,7 +47,7 @@ func Write(file string) error {
 		return err
 	}
 
-	return os.WriteFile(file, []byte(contents), 755)
+	return os.WriteFile(file, []byte(contents), 0755)
 }
 
 // SafeWrite is like Write but won't overwrite the file if it already exists
