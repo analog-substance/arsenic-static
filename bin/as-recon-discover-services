@@ -163,6 +163,7 @@ else
   ip="$targets"
   setup_host
 
-  # treat it as a single host
-  ${scan_proto}_accurate_punch "$ip"
+  cd $base_dir
+  ${scan_proto}_accurate_punch $ip
+  cd - > /dev/null 2>&1
 fi
