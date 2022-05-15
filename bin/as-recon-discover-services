@@ -153,5 +153,5 @@ if [ $count -gt 1 ]; then
   echo "$targets" | fist_fight
 else
   # treat it as a single host
-  accurate_punch "$targets"
+  ${scan_proto}_accurate_punch "$targets"
 fi
