@@ -34,6 +34,30 @@ func Get(file string) (string, error) {
 	return content, nil
 }
 
+// Write writes the embedded file to disk
+func Write(file string) error {
+	contents, err := Get(file)
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(file)
+	err = os.MkdirAll(dir, 755)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(file, []byte(contents), 755)
+}
+
+// SafeWrite is like Write but won't overwrite the file if it already exists
+func SafeWrite(file string) error {
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		return nil
+	}
+	return Write(file)
+}
+
 // Run executes the embedded file and waits for it to complete
 func Run(file string, args ...string) error {
 	cmd, err := Command(file, args...)
