@@ -42,9 +42,17 @@ udp_accurate_punch(){
   find recon -name "*nmap*.xml" -exec sed -i 's|"[^"]*nmap\.xsl"|"/static/nmap.xsl"|g' {} \;
 }
 
-try_punch(){
-  base_dir="hosts/$ip"
+setup_host(){
+  base_dir="."
+  if [ -d "hosts" ]; then
+    base_dir="hosts/$ip"
+  fi
+  
   mkdir -p $base_dir/loot $base_dir/recon
+}
+
+try_punch(){
+  setup_host
   if ! compgen -G "hosts/$host/recon/nmap-*$scan_proto*" > /dev/null 2>&1; then
     cd $base_dir
     ${scan_proto}_accurate_punch $ip
@@ -152,6 +160,9 @@ if [ $count -gt 1 ]; then
   # it was a file, lets treat each line as a host
   echo "$targets" | fist_fight
 else
+  ip="$targets"
+  setup_host
+
   # treat it as a single host
-  ${scan_proto}_accurate_punch "$targets"
+  ${scan_proto}_accurate_punch "$ip"
 fi
