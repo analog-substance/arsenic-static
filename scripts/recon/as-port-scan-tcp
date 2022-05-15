@@ -46,7 +46,7 @@ function scanHost {
 
     cd "hosts/$host"
     _info "Port Scan / TCP / $host / running"
-    as-recon-discover-tcp-services "$host"
+    as-recon-discover-services -t "$host"
     gitCommit "." "TCP port scan complete: $host"
     cd -
 

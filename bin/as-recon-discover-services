@@ -1,0 +1,157 @@
+#! /bin/bash
+
+if [[ -z "$NMAP_TIMING" ]]; then
+  NMAP_TIMING="3"
+fi
+
+if [[ -z "$NMAP" ]]; then
+  NMAP="nmap"
+fi
+
+skip_host_discovery=$($NMAP --help | grep "skip host discovery" | awk '{print $1}' | sed 's/://g')
+if [[ -z "$skip_host_discovery" ]]; then
+  skip_host_discovery="-Pn"
+fi
+
+min_rate=$($NMAP --help | grep "Send packets no slower" | awk '{print $1}')
+if [[ -n "$min_rate" ]]; then
+  min_rate="$min_rate 1000"
+fi
+
+tcp_quick_scan() {
+  $NMAP --open $skip_host_discovery -T$NMAP_TIMING --host-timeout 30m -n -p- $1 -oA recon/nmap-punched-quick-tcp
+}
+
+tcp_accurate_punch(){
+  echo "[+] scanning TCP $1"
+  ports=$(echo $(tcp_quick_scan $1 | grep open | cut -d/ -f1) | sed 's/ /,/g')
+  if [[ -z "$ports" ]]; then
+    echo "[+] $1: No open ports"
+    return
+  fi
+
+  echo "[+] Version scanning TCP $ports"
+
+  sudo $NMAP $skip_host_discovery -oA recon/nmap-punched-tcp --host-timeout 30m -n -A -p$ports $1
+  find recon -name "*nmap*.xml" -exec sed -i 's|"[^"]*nmap\.xsl"|"/static/nmap.xsl"|g' {} \;
+}
+
+udp_accurate_punch(){
+  echo "[+] scanning UDP $1"
+  sudo $NMAP -oA recon/nmap-punched-udp -sUV -p- $skip_host_discovery --max-rtt-timeout 100ms $min_rate --version-intensity 0 "$1"
+  find recon -name "*nmap*.xml" -exec sed -i 's|"[^"]*nmap\.xsl"|"/static/nmap.xsl"|g' {} \;
+}
+
+try_punch(){
+  base_dir="hosts/$ip"
+  mkdir -p $base_dir/loot $base_dir/recon
+  if ! compgen -G "hosts/$host/recon/nmap-*$scan_proto*" > /dev/null 2>&1; then
+    cd $base_dir
+    ${scan_proto}_accurate_punch $ip
+    cd - > /dev/null 2>&1
+  else
+    echo "[!] Skipping since it was already done"
+  fi
+}
+
+fist_fight(){
+  echo '[!] The fight is about to start 🔔'
+  i=0
+  while read ip; do
+    i=$(( i + 1))
+    try_punch &
+    if [ $i -eq 3 ]; then
+      while sleep 1; do
+        i=$(jobs | wc -l)
+        if [ $i -lt 3 ]; then
+          break;
+        fi
+      done
+    fi
+  done
+  wait
+  echo '[!] The fist fight is over 🎉'
+}
+
+show_usage() {
+  name=$(basename $0)
+  cat <<EOF
+Usage:
+
+  $name [options]
+  echo target | $name [options]
+  cat target-file | $name [options]
+
+Options:
+  -t, --target           The target to scan. Can be used multiple times to specify multiple targets
+  -tf, --target-file     The file containing the targets to scan
+  -u, --udp              Run a UDP scan instead of TCP
+EOF
+}
+
+scan_proto="tcp"
+targets=""
+while [[ "$1" =~ ^- && ! "$1" == "--" ]]; do
+    case $1 in
+    -h | --help)
+        show_usage
+        exit 1
+        ;;
+    -t | --target)
+        target="$2"
+        if [[ -z "$targets" ]]; then
+            targets="$target"
+        else
+            targets=$(echo -e "$targets\n$target")
+        fi
+        shift
+        ;;
+    -tf | --target-file)
+        contents=$(cat "$2" | grep -v "^#")
+        if [[ -z "$targets" ]]; then
+            targets="$contents"
+        else
+            targets=$(echo -e "$targets\n$contents")
+        fi
+        shift
+        ;;
+    -u | --udp)
+        scan_proto="udp"
+        ;;
+    esac
+    shift
+done
+if [[ "$1" == '--' ]]; then
+    shift
+fi
+
+# if input is piped in
+if [ ! -t 0 ]; then
+  while read target; do
+    if [ -z "$target" ]; then
+      continue
+    fi
+
+    if [[ -z "$targets" ]]; then
+      targets="$target"
+    else
+      targets=$(echo -e "$targets\n$target")
+    fi
+  done
+fi
+
+if [[ -z "$targets" ]]; then
+  echo "[!] Must specify a target"
+  echo
+  show_usage
+  exit 1
+fi
+
+count=$(echo "$targets" | wc -l)
+if [ $count -gt 1 ]; then
+  # it was a file, lets treat each line as a host
+  echo "$targets" | fist_fight
+else
+  # treat it as a single host
+  accurate_punch "$targets"
+fi

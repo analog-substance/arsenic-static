@@ -46,7 +46,7 @@ function scanHost {
 
     cd "hosts/$host"
     _info "Port Scan / UDP / $host / running"
-    as-recon-discover-udp-services "$host"
+    as-recon-discover-services -t "$host" -u
     gitCommit "." "UDP port scan complete: $host"
     cd -
 
