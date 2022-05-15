@@ -42,7 +42,7 @@ func Write(file string) error {
 	}
 
 	dir := filepath.Dir(file)
-	err = os.MkdirAll(dir, 755)
+	err = os.MkdirAll(dir, 0755)
 	if err != nil {
 		return err
 	}
